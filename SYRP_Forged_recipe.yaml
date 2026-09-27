@@ -1,0 +1,1047 @@
+$engine: 3
+$onesync: 'on'
+name: SYRP Forged
+version: 1.0.0-forged
+author: Smithy / SYRP
+description: A unique South Yorkshire-inspired standalone RP base with custom core, HUD, dispatch, services, jobs, interactions
+  and admin tools.
+tasks:
+- action: download_github
+  src: https://github.com/citizenfx/cfx-server-data
+  ref: master
+  subpath: resources
+  dest: ./tmp
+- action: ensure_dir
+  path: ./resources
+- action: move_path
+  src: ./tmp/[gamemodes]/basic-gamemode/
+  dest: ./resources/basic-gamemode/
+- action: move_path
+  src: ./tmp/[managers]/mapmanager/
+  dest: ./resources/mapmanager/
+- action: move_path
+  src: ./tmp/[managers]/spawnmanager/
+  dest: ./resources/spawnmanager/
+- action: move_path
+  src: ./tmp/[gamemodes]/[maps]/fivem-map-hipster/
+  dest: ./resources/[maps]/fivem-map-hipster/
+- action: move_path
+  src: ./tmp/[gamemodes]/[maps]/fivem-map-skater/
+  dest: ./resources/[maps]/fivem-map-skater/
+- action: remove_path
+  path: ./tmp
+- action: write_file
+  file: ./server.cfg
+  data: |
+    # ================================================================
+    # South Yorkshire Roleplay - Forged Framework
+    # Fully custom standalone base generated for txAdmin
+    # ================================================================
+
+    sv_hostname "{{serverName}} | South Yorkshire Roleplay"
+    sets sv_projectName "[SYRP] {{serverName}}"
+    sets sv_projectDesc "{{recipeDescription}}"
+    sets tags "roleplay, uk, south-yorkshire, custom, standalone, syrp"
+    sets locale "en-GB"
+
+    sv_licenseKey "{{svLicense}}"
+    sv_maxclients {{maxClients}}
+    {{serverEndpoints}}
+
+    # Modern system chat support for any resources that choose to use it.
+    set resources_useSystemChat true
+
+    # CFX base resources
+    ensure mapmanager
+    ensure spawnmanager
+    ensure basic-gamemode
+
+    # SYRP Forged Framework - start order matters
+    ensure syrp_core
+    ensure syrp_ui
+    ensure syrp_loadscreen
+    ensure syrp_spawn
+    ensure syrp_dispatch
+    ensure syrp_services
+    ensure syrp_jobs
+    ensure syrp_vehicles
+    ensure syrp_interact
+    ensure syrp_admin
+
+    # txAdmin / ACE integration
+    add_ace group.admin command allow
+    add_ace group.admin command.quit deny
+    add_ace group.admin syrp.admin allow
+    add_ace group.admin syrp.police allow
+    add_ace group.admin syrp.ems allow
+    {{addPrincipalsMaster}}
+
+    # Optional examples (replace the identifier before using):
+    # add_principal identifier.license:YOUR_LICENSE_HERE group.admin
+    # add_ace identifier.license:YOUR_LICENSE_HERE syrp.police allow
+    # add_ace identifier.license:YOUR_LICENSE_HERE syrp.ems allow
+- action: write_file
+  file: ./resources/[syrp]/README.md
+  data: |
+    # SYRP Forged Framework resources
+
+    These resources are original standalone scripts and do not require ESX, QBCore, Qbox, ox_lib or a SQL server.
+
+    Start order:
+    1. `syrp_core`
+    2. `syrp_ui`
+    3. `syrp_loadscreen`
+    4. `syrp_spawn`
+    5. `syrp_dispatch`
+    6. `syrp_services`
+    7. `syrp_jobs`
+    8. `syrp_vehicles`
+    9. `syrp_interact`
+    10. `syrp_admin`
+
+    Persistent player records are stored by `syrp_core` in `data/players.json`. For a larger production server, migrate the storage layer to MySQL while keeping the exports/API stable.
+- action: write_file
+  file: ./resources/[syrp]/syrp_admin/client.lua
+  data: |
+    RegisterNetEvent('syrp:admin:teleport',function(x,y,z)
+        local ped=PlayerPedId(); DoScreenFadeOut(200); Wait(250); SetEntityCoordsNoOffset(ped,x+0.0,y+0.0,z+0.5,false,false,false); Wait(250); DoScreenFadeIn(300)
+    end)
+- action: write_file
+  file: ./resources/[syrp]/syrp_admin/fxmanifest.lua
+  data: |
+    fx_version 'cerulean'
+    game 'gta5'
+    name 'syrp_admin'
+    author 'SYRP Forged Framework'
+    version '1.0.0'
+    client_script 'client.lua'
+    server_script 'server.lua'
+- action: write_file
+  file: ./resources/[syrp]/syrp_admin/server.lua
+  data: |
+    local reports, nextReport = {}, 0
+    local function admin(src) return IsPlayerAceAllowed(src,'syrp.admin') end
+    local function n(src,msg,kind) exports.syrp_core:Notify(src,msg,kind or 'info') end
+    local function argsText(args,start)
+        local t={}; for i=start or 1,#args do t[#t+1]=args[i] end; return table.concat(t,' ')
+    end
+
+    RegisterCommand('announce',function(src,args)
+        if src~=0 and not admin(src) then return end
+        local msg=argsText(args,1); if msg=='' then return end
+        TriggerClientEvent('syrp:ui:announce',-1,msg)
+    end,false)
+
+    RegisterCommand('report',function(src,args)
+        if src==0 then return end
+        local msg=argsText(args,1):sub(1,220); if msg=='' then return n(src,'Usage: /report <message>','error') end
+        nextReport=nextReport+1; reports[nextReport]={id=nextReport,src=src,name=GetPlayerName(src) or 'Unknown',message=msg,time=os.time()}
+        n(src,('Report #%d submitted.'):format(nextReport),'success')
+        for _,id in ipairs(GetPlayers()) do local a=tonumber(id); if admin(a) then n(a,('REPORT #%d | %s (%d): %s'):format(nextReport,reports[nextReport].name,src,msg),'warn') end end
+    end,false)
+
+    RegisterCommand('reports',function(src)
+        if src~=0 and not admin(src) then return end
+        local count=0; for _,r in pairs(reports) do count=count+1; if src~=0 then n(src,('#%d | %s (%d): %s'):format(r.id,r.name,r.src,r.message),'info') end end
+        if src~=0 and count==0 then n(src,'No open reports.','info') end
+    end,false)
+
+    RegisterCommand('closereport',function(src,args)
+        if src~=0 and not admin(src) then return end
+        local id=tonumber(args[1]); if id and reports[id] then reports[id]=nil; if src~=0 then n(src,'Report closed.','success') end end
+    end,false)
+
+    RegisterCommand('setjob',function(src,args)
+        if src~=0 and not admin(src) then return end
+        local target=tonumber(args[1]); local job=tostring(args[2] or ''); local grade=tonumber(args[3]) or 0
+        if not target or not exports.syrp_core:SetJob(target,job,grade) then if src~=0 then n(src,'Usage: /setjob ID citizen|police|ems|mechanic|council GRADE','error') end return end
+        if src~=0 then n(src,('Job updated for ID %d.'):format(target),'success') end; n(target,('Your job is now %s (grade %d).'):format(job,grade),'success')
+    end,false)
+
+    RegisterCommand('givemoney',function(src,args)
+        if src~=0 and not admin(src) then return end
+        local target=tonumber(args[1]); local account=tostring(args[2] or ''); local amount=math.floor(tonumber(args[3]) or 0)
+        if not target or amount<=0 or not exports.syrp_core:AddMoney(target,account,amount) then if src~=0 then n(src,'Usage: /givemoney ID cash|bank AMOUNT','error') end return end
+        n(target,('Admin added £%d to your %s.'):format(amount,account),'success')
+    end,false)
+
+    RegisterCommand('goto',function(src,args)
+        if src==0 or not admin(src) then return end
+        local target=tonumber(args[1]); if not target then return end
+        local ped=GetPlayerPed(target); if ped==0 then return end
+        local c=GetEntityCoords(ped); TriggerClientEvent('syrp:admin:teleport',src,c.x,c.y,c.z)
+    end,false)
+    RegisterCommand('bring',function(src,args)
+        if src==0 or not admin(src) then return end
+        local target=tonumber(args[1]); if not target then return end
+        local ped=GetPlayerPed(src); if ped==0 then return end
+        local c=GetEntityCoords(ped); TriggerClientEvent('syrp:admin:teleport',target,c.x,c.y,c.z)
+    end,false)
+- action: write_file
+  file: ./resources/[syrp]/syrp_core/client.lua
+  data: |
+    local PlayerData = nil
+
+    exports('GetData', function() return PlayerData end)
+
+    RegisterNetEvent('syrp:client:data', function(data)
+        PlayerData = data
+        TriggerEvent('syrp:client:dataUpdated', data)
+    end)
+
+    RegisterNetEvent('syrp:client:notify', function(message, kind)
+        TriggerEvent('syrp:ui:notify', message, kind or 'info')
+    end)
+
+    CreateThread(function()
+        while not NetworkIsPlayerActive(PlayerId()) do Wait(250) end
+        TriggerServerEvent('syrp:server:requestPlayer')
+        Wait(1000)
+        ShutdownLoadingScreen()
+        ShutdownLoadingScreenNui()
+    end)
+
+    RegisterCommand('cash', function()
+        if PlayerData then TriggerEvent('syrp:ui:notify', ('Cash: £%d'):format(PlayerData.cash or 0), 'info') end
+    end)
+
+    RegisterCommand('bank', function()
+        if PlayerData then TriggerEvent('syrp:ui:notify', ('Bank: £%d'):format(PlayerData.bank or 0), 'info') end
+    end)
+
+    RegisterCommand('job', function()
+        if PlayerData then
+            TriggerEvent('syrp:ui:notify', ('Job: %s | Grade %d | %s duty'):format(PlayerData.job, PlayerData.grade or 0, PlayerData.duty and 'ON' or 'OFF'), 'info')
+        end
+    end)
+
+    RegisterCommand('duty', function() TriggerServerEvent('syrp:server:toggleDuty') end)
+    RegisterCommand('pay', function(_, args)
+        TriggerServerEvent('syrp:server:payPlayer', tonumber(args[1]), tonumber(args[2]))
+    end)
+- action: write_file
+  file: ./resources/[syrp]/syrp_core/config.lua
+  data: |
+    SYRP = SYRP or {}
+    SYRP.Config = {
+        ServerLabel = 'South Yorkshire Roleplay',
+        StartingCash = 750,
+        StartingBank = 5000,
+        SaveIntervalMs = 60000,
+        MaxTransfer = 100000,
+        Jobs = {
+            citizen = { label = 'Citizen' },
+            police = { label = 'South Yorkshire Police' },
+            ems = { label = 'Yorkshire Ambulance Service' },
+            mechanic = { label = 'Steel City Motors' },
+            council = { label = 'Council Services' },
+        }
+    }
+- action: write_file
+  file: ./resources/[syrp]/syrp_core/data/players.json
+  data: |
+    {}
+- action: write_file
+  file: ./resources/[syrp]/syrp_core/fxmanifest.lua
+  data: |
+    fx_version 'cerulean'
+    game 'gta5'
+
+    name 'syrp_core'
+    author 'SYRP Forged Framework'
+    description 'Standalone player state, persistence, jobs and economy core.'
+    version '1.0.0'
+
+    shared_script 'config.lua'
+    client_script 'client.lua'
+    server_script 'server.lua'
+- action: write_file
+  file: ./resources/[syrp]/syrp_core/server.lua
+  data: |
+    local RESOURCE = GetCurrentResourceName()
+    local STORE_FILE = 'data/players.json'
+    local Players = {}
+    local Store = {}
+
+    local function notify(src, message, kind)
+        TriggerClientEvent('syrp:client:notify', src, tostring(message), kind or 'info')
+    end
+
+    local function getIdentifier(src)
+        for _, identifier in ipairs(GetPlayerIdentifiers(src)) do
+            if identifier:sub(1, 8) == 'license:' then
+                return identifier
+            end
+        end
+        return ('session:%s'):format(src)
+    end
+
+    local function saveStore()
+        SaveResourceFile(RESOURCE, STORE_FILE, json.encode(Store), -1)
+    end
+
+    local function defaultPlayer(src, identifier)
+        return {
+            identifier = identifier,
+            name = GetPlayerName(src) or 'Unknown',
+            cash = SYRP.Config.StartingCash,
+            bank = SYRP.Config.StartingBank,
+            job = 'citizen',
+            grade = 0,
+            duty = false,
+            created = os.time(),
+            last_seen = os.time()
+        }
+    end
+
+    local function sanitizePlayer(data, src, identifier)
+        local base = defaultPlayer(src, identifier)
+        if type(data) ~= 'table' then return base end
+        base.name = GetPlayerName(src) or data.name or base.name
+        base.cash = math.max(0, math.floor(tonumber(data.cash) or base.cash))
+        base.bank = math.max(0, math.floor(tonumber(data.bank) or base.bank))
+        base.job = SYRP.Config.Jobs[data.job] and data.job or 'citizen'
+        base.grade = math.max(0, math.floor(tonumber(data.grade) or 0))
+        base.duty = data.duty == true
+        base.created = tonumber(data.created) or base.created
+        base.last_seen = os.time()
+        return base
+    end
+
+    local function push(src)
+        if Players[src] then
+            TriggerClientEvent('syrp:client:data', src, Players[src])
+        end
+    end
+
+    local function loadPlayer(src)
+        src = tonumber(src)
+        if not src then return end
+        local identifier = getIdentifier(src)
+        local data = sanitizePlayer(Store[identifier], src, identifier)
+        Players[src] = data
+        Store[identifier] = data
+        push(src)
+    end
+
+    local function savePlayer(src)
+        src = tonumber(src)
+        local data = src and Players[src]
+        if not data then return end
+        data.last_seen = os.time()
+        Store[data.identifier] = data
+    end
+
+    local function setMoney(src, account, amount)
+        local p = Players[tonumber(src)]
+        amount = math.floor(tonumber(amount) or -1)
+        if not p or (account ~= 'cash' and account ~= 'bank') or amount < 0 then return false end
+        p[account] = amount
+        savePlayer(src)
+        push(src)
+        return true
+    end
+
+    local function addMoney(src, account, amount)
+        local p = Players[tonumber(src)]
+        amount = math.floor(tonumber(amount) or 0)
+        if not p or amount <= 0 or (account ~= 'cash' and account ~= 'bank') then return false end
+        return setMoney(src, account, p[account] + amount)
+    end
+
+    local function removeMoney(src, account, amount)
+        local p = Players[tonumber(src)]
+        amount = math.floor(tonumber(amount) or 0)
+        if not p or amount <= 0 or (account ~= 'cash' and account ~= 'bank') then return false end
+        if p[account] < amount then return false end
+        return setMoney(src, account, p[account] - amount)
+    end
+
+    local function setJob(src, job, grade)
+        local p = Players[tonumber(src)]
+        if not p or not SYRP.Config.Jobs[job] then return false end
+        p.job = job
+        p.grade = math.max(0, math.floor(tonumber(grade) or 0))
+        p.duty = false
+        savePlayer(src)
+        push(src)
+        return true
+    end
+
+    local function setDuty(src, state)
+        local p = Players[tonumber(src)]
+        if not p then return false end
+        if p.job ~= 'police' and p.job ~= 'ems' and p.job ~= 'mechanic' and p.job ~= 'council' then
+            return false
+        end
+        p.duty = state == true
+        savePlayer(src)
+        push(src)
+        return true
+    end
+
+    exports('GetPlayer', function(src) return Players[tonumber(src)] end)
+    exports('GetPlayers', function() return Players end)
+    exports('SetMoney', setMoney)
+    exports('AddMoney', addMoney)
+    exports('RemoveMoney', removeMoney)
+    exports('SetJob', setJob)
+    exports('SetDuty', setDuty)
+    exports('Notify', notify)
+
+    AddEventHandler('onResourceStart', function(resource)
+        if resource ~= RESOURCE then return end
+        local raw = LoadResourceFile(RESOURCE, STORE_FILE)
+        if raw and raw ~= '' then
+            local ok, decoded = pcall(json.decode, raw)
+            if ok and type(decoded) == 'table' then Store = decoded end
+        end
+        for _, id in ipairs(GetPlayers()) do loadPlayer(tonumber(id)) end
+    end)
+
+    AddEventHandler('playerJoining', function()
+        local src = source
+        SetTimeout(750, function()
+            if GetPlayerName(src) then loadPlayer(src) end
+        end)
+    end)
+
+    AddEventHandler('playerDropped', function()
+        local src = source
+        savePlayer(src)
+        saveStore()
+        Players[src] = nil
+    end)
+
+    RegisterNetEvent('syrp:server:requestPlayer', function()
+        local src = source
+        if not Players[src] then loadPlayer(src) else push(src) end
+    end)
+
+    RegisterNetEvent('syrp:server:toggleDuty', function()
+        local src = source
+        local p = Players[src]
+        if not p then return end
+        if setDuty(src, not p.duty) then
+            notify(src, ('You are now %s duty as %s.'):format(Players[src].duty and 'ON' or 'OFF', SYRP.Config.Jobs[p.job].label), Players[src].duty and 'success' or 'info')
+        else
+            notify(src, 'Your current job does not use duty status.', 'error')
+        end
+    end)
+
+    RegisterNetEvent('syrp:server:payPlayer', function(target, amount)
+        local src = source
+        target = tonumber(target)
+        amount = math.floor(tonumber(amount) or 0)
+        if not target or not Players[target] or amount <= 0 or amount > SYRP.Config.MaxTransfer then
+            return notify(src, 'Invalid player or amount.', 'error')
+        end
+        local srcPed, targetPed = GetPlayerPed(src), GetPlayerPed(target)
+        if srcPed == 0 or targetPed == 0 then return end
+        local distance = #(GetEntityCoords(srcPed) - GetEntityCoords(targetPed))
+        if distance > 5.0 then return notify(src, 'That player is too far away.', 'error') end
+        if not removeMoney(src, 'cash', amount) then return notify(src, 'You do not have enough cash.', 'error') end
+        addMoney(target, 'cash', amount)
+        notify(src, ('Paid £%d to ID %d.'):format(amount, target), 'success')
+        notify(target, ('You received £%d from ID %d.'):format(amount, src), 'success')
+    end)
+
+    CreateThread(function()
+        while true do
+            Wait(SYRP.Config.SaveIntervalMs)
+            for src in pairs(Players) do savePlayer(src) end
+            saveStore()
+        end
+    end)
+- action: write_file
+  file: ./resources/[syrp]/syrp_dispatch/client.lua
+  data: |
+    local calls = {}
+    local showing = false
+
+    local function text(x,y,scale,msg)
+        SetTextFont(4); SetTextScale(scale,scale); SetTextColour(245,248,250,235); SetTextOutline(); SetTextEntry('STRING'); AddTextComponentString(msg); DrawText(x,y)
+    end
+
+    RegisterNetEvent('syrp:dispatch:new', function(call)
+        calls[call.id] = call
+        TriggerEvent('syrp:ui:notify', ('[%s] Call %d: %s'):format(call.kind, call.id, call.message), call.kind == '999' and 'error' or 'warn')
+    end)
+    RegisterNetEvent('syrp:dispatch:update', function(call) calls[call.id]=call end)
+    RegisterNetEvent('syrp:dispatch:removed', function(id) calls[tonumber(id)]=nil end)
+    RegisterNetEvent('syrp:dispatch:setRoute', function(call)
+        SetNewWaypoint(call.x+0.0, call.y+0.0)
+        TriggerEvent('syrp:ui:notify', ('Route set to call %d.'):format(call.id), 'success')
+    end)
+
+    local function createCall(kind, args)
+        local msg = table.concat(args, ' ')
+        if msg == '' then return TriggerEvent('syrp:ui:notify', ('Usage: /%s <message>'):format(kind), 'error') end
+        local c = GetEntityCoords(PlayerPedId())
+        TriggerServerEvent('syrp:dispatch:create', kind, msg, {x=c.x,y=c.y,z=c.z})
+    end
+    RegisterCommand('999', function(_, args) createCall('999', args) end)
+    RegisterCommand('101', function(_, args) createCall('101', args) end)
+    RegisterCommand('accept', function(_, args) TriggerServerEvent('syrp:dispatch:accept', tonumber(args[1])) end)
+    RegisterCommand('clearcall', function(_, args) TriggerServerEvent('syrp:dispatch:clear', tonumber(args[1])) end)
+    RegisterCommand('dispatch', function()
+        local d = exports.syrp_core:GetData()
+        if not d or not d.duty or (d.job ~= 'police' and d.job ~= 'ems') then return TriggerEvent('syrp:ui:notify','You must be on emergency-service duty.','error') end
+        showing = not showing
+    end)
+    RegisterKeyMapping('dispatch', 'Open/close SYRP dispatch board', 'keyboard', 'G')
+
+    CreateThread(function()
+        while true do
+            if showing then
+                Wait(0)
+                DrawRect(.82,.28,.34,.42,8,12,17,215)
+                text(.66,.085,.42,'SYRP DISPATCH — G TO CLOSE')
+                local list = {}
+                for _,call in pairs(calls) do list[#list+1]=call end
+                table.sort(list,function(a,b)return a.id>b.id end)
+                if #list == 0 then text(.67,.13,.32,'No active calls.') end
+                for i=1,math.min(#list,8) do
+                    local c=list[i]; local status=c.acceptedBy and (' | UNIT '..c.acceptedBy) or ''
+                    text(.67,.11+(i*.038),.28,('[%s] #%d %s%s'):format(c.kind,c.id,c.message:sub(1,42),status))
+                end
+                text(.67,.455,.25,'/accept ID   /clearcall ID')
+            else Wait(350) end
+        end
+    end)
+- action: write_file
+  file: ./resources/[syrp]/syrp_dispatch/fxmanifest.lua
+  data: |
+    fx_version 'cerulean'
+    game 'gta5'
+    name 'syrp_dispatch'
+    author 'SYRP Forged Framework'
+    version '1.0.0'
+    client_script 'client.lua'
+    server_script 'server.lua'
+- action: write_file
+  file: ./resources/[syrp]/syrp_dispatch/server.lua
+  data: |
+    local incidents, nextId = {}, 100
+
+    local function servicePlayer(src)
+        local p = exports.syrp_core:GetPlayer(src)
+        return p and p.duty and (p.job == 'police' or p.job == 'ems'), p
+    end
+
+    local function sendToServices(event, payload)
+        for _, id in ipairs(GetPlayers()) do
+            local src = tonumber(id)
+            local ok = servicePlayer(src)
+            if ok then TriggerClientEvent(event, src, payload) end
+        end
+    end
+
+    RegisterNetEvent('syrp:dispatch:create', function(kind, message, coords)
+        local src = source
+        message = tostring(message or ''):sub(1, 180)
+        if message == '' or type(coords) ~= 'table' then return end
+        nextId = nextId + 1
+        local incident = {
+            id=nextId, kind=(kind == '101' and '101' or '999'), message=message,
+            caller=GetPlayerName(src) or ('ID '..src), callerId=src,
+            x=tonumber(coords.x) or 0.0, y=tonumber(coords.y) or 0.0, z=tonumber(coords.z) or 0.0,
+            created=os.time(), acceptedBy=nil
+        }
+        incidents[incident.id] = incident
+        sendToServices('syrp:dispatch:new', incident)
+        exports.syrp_core:Notify(src, ('Call %d logged. Emergency services have been notified.'):format(incident.id), 'success')
+    end)
+
+    RegisterNetEvent('syrp:dispatch:accept', function(id)
+        local src = source
+        local ok = servicePlayer(src)
+        id = tonumber(id)
+        local call = id and incidents[id]
+        if not ok or not call then return end
+        call.acceptedBy = src
+        sendToServices('syrp:dispatch:update', call)
+        TriggerClientEvent('syrp:dispatch:setRoute', src, call)
+    end)
+
+    RegisterNetEvent('syrp:dispatch:clear', function(id)
+        local src = source
+        local ok = servicePlayer(src)
+        id = tonumber(id)
+        if not ok or not incidents[id] then return end
+        incidents[id] = nil
+        sendToServices('syrp:dispatch:removed', id)
+    end)
+- action: write_file
+  file: ./resources/[syrp]/syrp_interact/client.lua
+  data: |
+    local target=nil
+    local function closestPlayer()
+        local me=PlayerPedId(); local mc=GetEntityCoords(me); local best,bestD=nil,3.5
+        for _,p in ipairs(GetActivePlayers()) do if p~=PlayerId() then local d=#(mc-GetEntityCoords(GetPlayerPed(p))); if d<bestD then best,bestD=p,d end end end
+        return best
+    end
+    local function open()
+        local p=closestPlayer(); if not p then return TriggerEvent('syrp:ui:notify','No player close enough to interact with.','error') end
+        target=GetPlayerServerId(p); SetNuiFocus(true,true); SendNUIMessage({action='open',id=target,name=GetPlayerName(p)})
+    end
+    RegisterCommand('syrp_interact',open)
+    RegisterKeyMapping('syrp_interact','Open SYRP nearby-player interaction','keyboard','H')
+    RegisterNUICallback('close',function(_,cb)SetNuiFocus(false,false);SendNUIMessage({action='close'});target=nil;cb({ok=true})end)
+    RegisterNUICallback('action',function(data,cb)
+        if not target then cb({ok=false}) return end
+        local a=data.action
+        if a=='id' then TriggerEvent('syrp:ui:notify',('Nearby player: %s | ID %d'):format(data.name or 'Unknown',target),'info')
+        elseif a=='cuff' then TriggerServerEvent('syrp:services:cuff',target)
+        elseif a=='escort' then TriggerServerEvent('syrp:services:escort',target)
+        elseif a=='search' then TriggerServerEvent('syrp:services:search',target)
+        elseif a=='seat' then TriggerServerEvent('syrp:services:seat',target) end
+        cb({ok=true})
+    end)
+- action: write_file
+  file: ./resources/[syrp]/syrp_interact/fxmanifest.lua
+  data: |
+    fx_version 'cerulean'
+    game 'gta5'
+    name 'syrp_interact'
+    author 'SYRP Forged Framework'
+    version '1.0.0'
+    client_script 'client.lua'
+    ui_page 'html/index.html'
+    files { 'html/index.html','html/style.css','html/app.js' }
+- action: write_file
+  file: ./resources/[syrp]/syrp_interact/html/app.js
+  data: |
+    let name='';const m=document.getElementById('m'),who=document.getElementById('who');
+    window.addEventListener('message',e=>{const d=e.data||{};if(d.action==='open'){name=d.name||'Unknown';who.textContent=`${name} — ID ${d.id}`;m.style.display='block'}if(d.action==='close')m.style.display='none'});
+    document.querySelectorAll('[data-a]').forEach(b=>b.onclick=()=>fetch(`https://${GetParentResourceName()}/action`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:b.dataset.a,name})}));document.getElementById('close').onclick=()=>fetch(`https://${GetParentResourceName()}/close`,{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
+    document.addEventListener('keyup',e=>{if(e.key==='Escape')document.getElementById('close').click()});
+- action: write_file
+  file: ./resources/[syrp]/syrp_interact/html/index.html
+  data: |
+    <!doctype html><html><head><meta charset="utf-8"><link rel="stylesheet" href="style.css"></head><body><main id="m"><p>NEARBY PLAYER</p><h2 id="who"></h2><button data-a="id">Show ID</button><button data-a="cuff">Cuff / Uncuff</button><button data-a="escort">Escort / Release</button><button data-a="search">Police Search</button><button data-a="seat">Seat / Remove</button><button class="close" id="close">Close</button></main><script src="app.js"></script></body></html>
+- action: write_file
+  file: ./resources/[syrp]/syrp_interact/html/style.css
+  data: |
+    *{box-sizing:border-box}body{margin:0;font-family:Arial,sans-serif;color:#f5f7f9}main{display:none;position:fixed;right:5vw;top:50%;transform:translateY(-50%);width:290px;padding:20px;background:rgba(8,12,17,.95);border:1px solid rgba(255,255,255,.14);border-left:4px solid #aebac6;border-radius:8px}p{font-size:9px;letter-spacing:2px;color:#8796a5;margin:0}h2{margin:5px 0 14px;font-size:20px}button{display:block;width:100%;padding:10px 12px;margin:6px 0;text-align:left;color:#eef2f5;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.09);border-radius:5px;cursor:pointer}button:hover{background:rgba(255,255,255,.12)}.close{color:#ff9292}
+- action: write_file
+  file: ./resources/[syrp]/syrp_jobs/client.lua
+  data: |
+    local activeName,step=nil,0
+    local function route(name,n)
+        activeName,step=name,n; local p=SYRPJobs[name].points[n]; SetNewWaypoint(p.x,p.y)
+    end
+    RegisterNetEvent('syrp:jobs:route',route)
+    RegisterNetEvent('syrp:jobs:stopped',function()activeName=nil;step=0;SetWaypointOff();TriggerEvent('syrp:ui:notify','Public job stopped.','info')end)
+    RegisterNetEvent('syrp:jobs:complete',function(pay)activeName=nil;step=0;SetWaypointOff();TriggerEvent('syrp:ui:notify',('Route complete — £%d paid to bank.'):format(pay),'success')end)
+    RegisterCommand('work',function(_,a)
+        if not a[1] then return TriggerEvent('syrp:ui:notify','Jobs: steelworks | council | courier. Use /work <job> or /work stop.','info') end
+        if a[1]=='stop' then TriggerServerEvent('syrp:jobs:stop') else TriggerServerEvent('syrp:jobs:start',string.lower(a[1])) end
+    end)
+    CreateThread(function()
+        while true do
+            if activeName then
+                local p=SYRPJobs[activeName].points[step]; local c=GetEntityCoords(PlayerPedId()); local dist=#(c-p)
+                if dist<45.0 then DrawMarker(1,p.x,p.y,p.z-1.0,0,0,0,0,0,0,2.2,2.2,.8,180,195,210,130,false,false,2,false,nil,nil,false) end
+                if dist<2.2 then
+                    BeginTextCommandDisplayHelp('STRING');AddTextComponentSubstringPlayerName('Press ~INPUT_CONTEXT~ to complete work checkpoint');EndTextCommandDisplayHelp(0,false,true,-1)
+                    if IsControlJustReleased(0,38) then TriggerServerEvent('syrp:jobs:checkpoint'); Wait(1200) end
+                end
+                Wait(dist<45.0 and 0 or 500)
+            else Wait(700) end
+        end
+    end)
+- action: write_file
+  file: ./resources/[syrp]/syrp_jobs/config.lua
+  data: |
+    SYRPJobs = {
+        steelworks = {
+            label='Steelworks Logistics', pay=1800,
+            points={ vector3(746.38,-966.02,24.52), vector3(1180.48,-3303.05,6.03), vector3(978.76,-2544.42,28.30), vector3(892.54,-2172.27,32.29) }
+        },
+        council = {
+            label='Council Street Services', pay=1350,
+            points={ vector3(116.52,-1462.31,29.29), vector3(-347.32,-1569.83,25.22), vector3(-521.62,-1715.36,19.33), vector3(-741.91,-1270.37,5.00) }
+        },
+        courier = {
+            label='Northern Courier Route', pay=1500,
+            points={ vector3(-42.77,-1748.21,29.42), vector3(-709.12,-904.18,19.22), vector3(1134.28,-982.42,46.42), vector3(2557.31,382.16,108.62) }
+        }
+    }
+- action: write_file
+  file: ./resources/[syrp]/syrp_jobs/fxmanifest.lua
+  data: |
+    fx_version 'cerulean'
+    game 'gta5'
+    name 'syrp_jobs'
+    author 'SYRP Forged Framework'
+    version '1.0.0'
+    shared_script 'config.lua'
+    client_script 'client.lua'
+    server_script 'server.lua'
+- action: write_file
+  file: ./resources/[syrp]/syrp_jobs/server.lua
+  data: |
+    local active={}
+
+    RegisterNetEvent('syrp:jobs:start', function(name)
+        local src=source; local job=SYRPJobs[name]
+        if not job then return exports.syrp_core:Notify(src,'Unknown public job.','error') end
+        active[src]={name=name,step=1}
+        TriggerClientEvent('syrp:jobs:route',src,name,1)
+        exports.syrp_core:Notify(src,job.label..' started. Follow the route.','success')
+    end)
+    RegisterNetEvent('syrp:jobs:stop', function() active[source]=nil; TriggerClientEvent('syrp:jobs:stopped',source) end)
+    RegisterNetEvent('syrp:jobs:checkpoint', function()
+        local src=source; local a=active[src]; if not a then return end
+        local job=SYRPJobs[a.name]; local point=job and job.points[a.step]; if not point then return end
+        local ped=GetPlayerPed(src); if ped==0 then return end
+        if #(GetEntityCoords(ped)-point)>7.0 then return exports.syrp_core:Notify(src,'Checkpoint rejected: move closer to the work marker.','error') end
+        a.step=a.step+1
+        if a.step>#job.points then
+            active[src]=nil; exports.syrp_core:AddMoney(src,'bank',job.pay); TriggerClientEvent('syrp:jobs:complete',src,job.pay)
+        else TriggerClientEvent('syrp:jobs:route',src,a.name,a.step) end
+    end)
+    AddEventHandler('playerDropped',function()active[source]=nil end)
+- action: write_file
+  file: ./resources/[syrp]/syrp_loadscreen/fxmanifest.lua
+  data: |
+    fx_version 'cerulean'
+    game 'gta5'
+    name 'syrp_loadscreen'
+    author 'SYRP Forged Framework'
+    version '1.0.0'
+    loadscreen 'html/index.html'
+    loadscreen_manual_shutdown 'yes'
+    files { 'html/index.html', 'html/style.css' }
+- action: write_file
+  file: ./resources/[syrp]/syrp_loadscreen/html/index.html
+  data: |
+    <!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="style.css"><title>South Yorkshire Roleplay</title></head><body><div class="grid"></div><main><div class="mark">SY</div><p class="kicker">SOUTH YORKSHIRE ROLEPLAY</p><h1>FORGED <span>IN STEEL.</span><br>BUILT FOR STORIES.</h1><p class="sub">A fully custom standalone FiveM experience.</p><div class="line"><i></i><b>CONNECTING TO THE CITY</b></div></main><footer>SYRP FORGED FRAMEWORK • CUSTOM CORE • UK ROLEPLAY</footer></body></html>
+- action: write_file
+  file: ./resources/[syrp]/syrp_loadscreen/html/style.css
+  data: |
+    *{box-sizing:border-box}html,body{width:100%;height:100%;margin:0;overflow:hidden;background:#090d12;color:#f4f7f9;font-family:Arial,Helvetica,sans-serif}body:before{content:"";position:absolute;inset:-30%;background:radial-gradient(circle at 25% 35%,rgba(140,160,180,.22),transparent 24%),radial-gradient(circle at 75% 60%,rgba(70,85,100,.18),transparent 24%),linear-gradient(125deg,#080b0f,#121a22 55%,#080b0f);animation:drift 12s ease-in-out infinite alternate}.grid{position:absolute;inset:0;background-image:linear-gradient(rgba(255,255,255,.025) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,.025) 1px,transparent 1px);background-size:42px 42px;mask-image:linear-gradient(to bottom,transparent,black 35%,black 65%,transparent)}main{position:absolute;left:9vw;top:50%;transform:translateY(-50%);max-width:760px}.mark{width:72px;height:72px;border:2px solid #cad2da;display:grid;place-items:center;font-size:25px;font-weight:900;letter-spacing:-2px;transform:rotate(45deg);margin:0 0 34px 10px}.mark::first-line{transform:rotate(-45deg)}.kicker{letter-spacing:5px;font-size:12px;color:#aab6c2;font-weight:700}h1{font-size:clamp(46px,6vw,92px);line-height:.92;margin:12px 0 18px;font-weight:900;letter-spacing:-4px}h1 span{color:#8899aa}.sub{color:#a9b4bf;font-size:17px}.line{margin-top:38px;display:flex;align-items:center;gap:13px;color:#cbd3da;font-size:10px;letter-spacing:2px}.line i{display:block;width:150px;height:3px;background:linear-gradient(90deg,#e9edf1 0 55%,#3c4650 55%);animation:load 2.4s linear infinite;background-size:200% 100%}footer{position:absolute;bottom:3vh;left:9vw;font-size:9px;letter-spacing:2px;color:#65717d}@keyframes drift{to{transform:translate3d(3%,2%,0) scale(1.06)}}@keyframes load{to{background-position:-200% 0}}
+- action: write_file
+  file: ./resources/[syrp]/syrp_services/client.lua
+  data: |
+    local isCuffed=false
+    local isEscorted=false
+
+    RegisterNetEvent('syrp:services:setCuffed', function(state)
+        isCuffed=state==true
+        local ped=PlayerPedId()
+        if isCuffed then
+            RequestAnimDict('mp_arresting'); while not HasAnimDictLoaded('mp_arresting') do Wait(10) end
+            TaskPlayAnim(ped,'mp_arresting','idle',8.0,-8.0,-1,49,0,false,false,false)
+            SetEnableHandcuffs(ped,true)
+        else
+            ClearPedTasks(ped); SetEnableHandcuffs(ped,false)
+        end
+    end)
+
+    RegisterNetEvent('syrp:services:setEscorted', function(state, officer)
+        isEscorted=state==true
+        local ped=PlayerPedId()
+        if not isEscorted then return DetachEntity(ped,true,false) end
+        local player=GetPlayerFromServerId(officer)
+        if player==-1 then return end
+        AttachEntityToEntity(ped,GetPlayerPed(player),11816,0.35,0.45,0.0,0.0,0.0,0.0,false,false,false,false,2,true)
+    end)
+
+    RegisterNetEvent('syrp:services:seat', function(officer)
+        local op=GetPlayerFromServerId(officer); if op==-1 then return end
+        local c=GetEntityCoords(GetPlayerPed(op)); local veh=GetClosestVehicle(c.x,c.y,c.z,7.0,0,71)
+        if veh==0 then return TriggerEvent('syrp:ui:notify','No nearby vehicle.','error') end
+        if IsPedInAnyVehicle(PlayerPedId(),false) then TaskLeaveVehicle(PlayerPedId(),GetVehiclePedIsIn(PlayerPedId(),false),16)
+        else
+            for seat=GetVehicleMaxNumberOfPassengers(veh)-1,0,-1 do if IsVehicleSeatFree(veh,seat) then TaskWarpPedIntoVehicle(PlayerPedId(),veh,seat); break end end
+        end
+    end)
+
+    RegisterNetEvent('syrp:services:revive', function()
+        local ped=PlayerPedId(); local c=GetEntityCoords(ped)
+        NetworkResurrectLocalPlayer(c.x,c.y,c.z,GetEntityHeading(ped),true,false)
+        ClearPedBloodDamage(ped); SetEntityHealth(ped,200)
+        TriggerEvent('syrp:ui:notify','You have been revived.','success')
+    end)
+    RegisterNetEvent('syrp:services:heal', function() SetEntityHealth(PlayerPedId(),200); ClearPedBloodDamage(PlayerPedId()); TriggerEvent('syrp:ui:notify','Treatment complete.','success') end)
+
+    RegisterCommand('cuff',function(_,a)TriggerServerEvent('syrp:services:cuff',tonumber(a[1]))end)
+    RegisterCommand('escort',function(_,a)TriggerServerEvent('syrp:services:escort',tonumber(a[1]))end)
+    RegisterCommand('search',function(_,a)TriggerServerEvent('syrp:services:search',tonumber(a[1]))end)
+    RegisterCommand('seat',function(_,a)TriggerServerEvent('syrp:services:seat',tonumber(a[1]))end)
+    RegisterCommand('revive',function(_,a)TriggerServerEvent('syrp:services:revive',tonumber(a[1]))end)
+    RegisterCommand('heal',function(_,a)TriggerServerEvent('syrp:services:heal',tonumber(a[1]))end)
+    RegisterCommand('help',function(_,a) local msg=#a>0 and table.concat(a,' ') or 'Person requires medical assistance'; local c=GetEntityCoords(PlayerPedId()); TriggerServerEvent('syrp:dispatch:create','999',msg,{x=c.x,y=c.y,z=c.z}) end)
+
+    CreateThread(function()
+        while true do
+            if isCuffed then
+                Wait(0)
+                DisableControlAction(0,24,true);DisableControlAction(0,25,true);DisableControlAction(0,22,true);DisableControlAction(0,37,true);DisableControlAction(0,75,true)
+                if not IsEntityPlayingAnim(PlayerPedId(),'mp_arresting','idle',3) then TaskPlayAnim(PlayerPedId(),'mp_arresting','idle',8.0,-8.0,-1,49,0,false,false,false) end
+            else Wait(400) end
+        end
+    end)
+- action: write_file
+  file: ./resources/[syrp]/syrp_services/fxmanifest.lua
+  data: |
+    fx_version 'cerulean'
+    game 'gta5'
+    name 'syrp_services'
+    author 'SYRP Forged Framework'
+    version '1.0.0'
+    client_script 'client.lua'
+    server_script 'server.lua'
+- action: write_file
+  file: ./resources/[syrp]/syrp_services/server.lua
+  data: |
+    local cuffed, escorted = {}, {}
+
+    local function near(a,b,maxDist)
+        a,b=tonumber(a),tonumber(b)
+        if not a or not b or a==b then return false end
+        local ap,bp=GetPlayerPed(a),GetPlayerPed(b)
+        if ap==0 or bp==0 then return false end
+        return #(GetEntityCoords(ap)-GetEntityCoords(bp)) <= (maxDist or 4.0)
+    end
+    local function allowed(src, job, ace)
+        if IsPlayerAceAllowed(src, ace) then return true end
+        local p=exports.syrp_core:GetPlayer(src)
+        return p and p.job==job and p.duty==true
+    end
+    local function bad(src,msg) exports.syrp_core:Notify(src,msg,'error') end
+
+    RegisterNetEvent('syrp:services:cuff', function(target)
+        local src=source; target=tonumber(target)
+        if not allowed(src,'police','syrp.police') then return bad(src,'Police duty required.') end
+        if not target or not near(src,target,4.0) then return bad(src,'Target is too far away.') end
+        cuffed[target]=not cuffed[target]
+        TriggerClientEvent('syrp:services:setCuffed',target,cuffed[target])
+        exports.syrp_core:Notify(src, cuffed[target] and 'Suspect cuffed.' or 'Suspect uncuffed.','success')
+    end)
+
+    RegisterNetEvent('syrp:services:escort', function(target)
+        local src=source; target=tonumber(target)
+        if not allowed(src,'police','syrp.police') then return bad(src,'Police duty required.') end
+        if not target or not near(src,target,4.0) then return bad(src,'Target is too far away.') end
+        escorted[target]=not escorted[target]
+        TriggerClientEvent('syrp:services:setEscorted',target,escorted[target],src)
+    end)
+
+    RegisterNetEvent('syrp:services:search', function(target)
+        local src=source; target=tonumber(target)
+        if not allowed(src,'police','syrp.police') then return bad(src,'Police duty required.') end
+        if not target or not near(src,target,4.0) then return bad(src,'Target is too far away.') end
+        local p=exports.syrp_core:GetPlayer(target)
+        if p then exports.syrp_core:Notify(src, ('ID %d | cash £%d | bank £%d | job %s'):format(target,p.cash,p.bank,p.job),'info') end
+    end)
+
+    RegisterNetEvent('syrp:services:seat', function(target)
+        local src=source; target=tonumber(target)
+        if not allowed(src,'police','syrp.police') then return bad(src,'Police duty required.') end
+        if not target or not near(src,target,5.0) then return bad(src,'Target is too far away.') end
+        TriggerClientEvent('syrp:services:seat',target,src)
+    end)
+
+    RegisterNetEvent('syrp:services:revive', function(target)
+        local src=source; target=tonumber(target)
+        if not allowed(src,'ems','syrp.ems') then return bad(src,'Ambulance duty required.') end
+        if not target or not near(src,target,6.0) then return bad(src,'Target is too far away.') end
+        TriggerClientEvent('syrp:services:revive',target)
+    end)
+
+    RegisterNetEvent('syrp:services:heal', function(target)
+        local src=source; target=tonumber(target)
+        if not allowed(src,'ems','syrp.ems') then return bad(src,'Ambulance duty required.') end
+        if not target or not near(src,target,6.0) then return bad(src,'Target is too far away.') end
+        TriggerClientEvent('syrp:services:heal',target)
+    end)
+
+    AddEventHandler('playerDropped', function() cuffed[source]=nil escorted[source]=nil end)
+- action: write_file
+  file: ./resources/[syrp]/syrp_spawn/client.lua
+  data: |
+    local opened = false
+    local finished = false
+
+    local function openMenu()
+        if finished or opened then return end
+        opened = true
+        SetNuiFocus(true, true)
+        local choices = {}
+        for _, s in ipairs(SYRPSpawns) do choices[#choices+1] = {id=s.id,label=s.label,subtitle=s.subtitle} end
+        SendNUIMessage({ action='open', choices=choices })
+    end
+
+    AddEventHandler('playerSpawned', function()
+        if not finished then SetTimeout(650, openMenu) end
+    end)
+
+    RegisterCommand('spawnmenu', openMenu)
+
+    RegisterNUICallback('choose', function(data, cb)
+        local chosen
+        for _, s in ipairs(SYRPSpawns) do if s.id == data.id then chosen=s break end end
+        if not chosen then cb({ok=false}) return end
+        local ped = PlayerPedId()
+        DoScreenFadeOut(350)
+        while not IsScreenFadedOut() do Wait(0) end
+        FreezeEntityPosition(ped, true)
+        RequestCollisionAtCoord(chosen.coords.x, chosen.coords.y, chosen.coords.z)
+        SetEntityCoordsNoOffset(ped, chosen.coords.x, chosen.coords.y, chosen.coords.z, false, false, false)
+        SetEntityHeading(ped, chosen.coords.w)
+        Wait(450)
+        FreezeEntityPosition(ped, false)
+        SetNuiFocus(false, false)
+        SendNUIMessage({action='close'})
+        opened, finished = false, true
+        DoScreenFadeIn(500)
+        TriggerEvent('syrp:ui:notify', 'Welcome to '..chosen.label..'.', 'success')
+        cb({ok=true})
+    end)
+- action: write_file
+  file: ./resources/[syrp]/syrp_spawn/config.lua
+  data: |
+    SYRPSpawns = {
+        { id='steel', label='Steel City Centre', subtitle='Central services, shops and nightlife', coords=vector4(215.76,-810.12,30.73,159.0) },
+        { id='don', label='Don Valley Works', subtitle='Industrial yards and logistics quarter', coords=vector4(892.54,-2172.27,32.29,171.0) },
+        { id='rother', label='Rother Valley', subtitle='Quieter eastern residential district', coords=vector4(1126.23,-645.16,56.80,282.0) },
+        { id='moor', label='Moorlands Edge', subtitle='Northern rural edge of the county', coords=vector4(-104.74,6469.17,31.63,135.0) }
+    }
+- action: write_file
+  file: ./resources/[syrp]/syrp_spawn/fxmanifest.lua
+  data: |
+    fx_version 'cerulean'
+    game 'gta5'
+    name 'syrp_spawn'
+    author 'SYRP Forged Framework'
+    version '1.0.0'
+    shared_script 'config.lua'
+    client_script 'client.lua'
+    ui_page 'html/index.html'
+    files { 'html/index.html', 'html/style.css', 'html/app.js' }
+- action: write_file
+  file: ./resources/[syrp]/syrp_spawn/html/app.js
+  data: |
+    const p=document.getElementById('panel'),c=document.getElementById('choices');
+    window.addEventListener('message',e=>{const m=e.data||{};if(m.action==='open'){c.innerHTML='';(m.choices||[]).forEach(x=>{const b=document.createElement('button');b.innerHTML=`<b>${x.label}</b><span>${x.subtitle}</span>`;b.onclick=()=>fetch(`https://${GetParentResourceName()}/choose`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:x.id})});c.appendChild(b)});p.style.display='block'}if(m.action==='close')p.style.display='none'});
+- action: write_file
+  file: ./resources/[syrp]/syrp_spawn/html/index.html
+  data: |
+    <!doctype html><html lang="en"><head><meta charset="utf-8"><link rel="stylesheet" href="style.css"><title>Spawn</title></head><body><main id="panel"><p>SOUTH YORKSHIRE ROLEPLAY</p><h1>CHOOSE YOUR START</h1><div id="choices"></div><small>These are SYRP-themed districts positioned across the GTA V map.</small></main><script src="app.js"></script></body></html>
+- action: write_file
+  file: ./resources/[syrp]/syrp_spawn/html/style.css
+  data: |
+    *{box-sizing:border-box}body{margin:0;font-family:Arial,sans-serif;color:#f4f7f9;background:transparent}main{display:none;position:fixed;left:6vw;top:50%;transform:translateY(-50%);width:470px;padding:28px;background:rgba(8,12,17,.94);border-left:5px solid #aeb9c4;box-shadow:0 20px 80px rgba(0,0,0,.55);border-radius:9px}p{font-size:10px;letter-spacing:3px;color:#93a2b2}h1{font-size:31px;margin:4px 0 18px}#choices{display:grid;gap:9px}button{all:unset;cursor:pointer;padding:13px 15px;border:1px solid rgba(255,255,255,.11);background:rgba(255,255,255,.04);border-radius:6px}button:hover{background:rgba(255,255,255,.11);border-color:#b9c4ce}button b{display:block;font-size:15px}button span{display:block;color:#95a3b1;font-size:11px;margin-top:4px}small{display:block;margin-top:15px;color:#6f7d8b;font-size:9px}
+- action: write_file
+  file: ./resources/[syrp]/syrp_ui/client.lua
+  data: |
+    local currentData = nil
+
+    local function sendData(data)
+        currentData = data
+        SendNUIMessage({ action = 'playerData', data = data })
+    end
+
+    AddEventHandler('syrp:client:dataUpdated', sendData)
+    RegisterNetEvent('syrp:client:data', sendData)
+
+    AddEventHandler('syrp:ui:notify', function(message, kind)
+        SendNUIMessage({ action = 'notify', message = tostring(message), kind = kind or 'info' })
+    end)
+
+    RegisterNetEvent('syrp:ui:announce', function(message)
+        SendNUIMessage({ action = 'announce', message = tostring(message) })
+    end)
+
+    CreateThread(function()
+        Wait(1500)
+        local data = exports.syrp_core:GetData()
+        if data then sendData(data) end
+    end)
+- action: write_file
+  file: ./resources/[syrp]/syrp_ui/fxmanifest.lua
+  data: |
+    fx_version 'cerulean'
+    game 'gta5'
+    name 'syrp_ui'
+    author 'SYRP Forged Framework'
+    version '1.0.0'
+
+    ui_page 'html/index.html'
+    files { 'html/index.html', 'html/style.css', 'html/app.js' }
+    client_script 'client.lua'
+- action: write_file
+  file: ./resources/[syrp]/syrp_ui/html/app.js
+  data: |
+    const hud=document.getElementById('hud'), notices=document.getElementById('notices'), announce=document.getElementById('announce');
+    const money=n=>Number(n||0).toLocaleString('en-GB');
+    window.addEventListener('message',e=>{const m=e.data||{};
+     if(m.action==='playerData'&&m.data){hud.classList.remove('hidden');document.getElementById('cash').textContent=money(m.data.cash);document.getElementById('bank').textContent=money(m.data.bank);document.getElementById('job').textContent=m.data.job||'citizen';const d=document.getElementById('duty');d.textContent=m.data.duty?'ON DUTY':'OFF DUTY';d.classList.toggle('on',!!m.data.duty)}
+     if(m.action==='notify'){const n=document.createElement('div');n.className='notice '+(m.kind||'info');n.textContent=m.message||'';notices.appendChild(n);setTimeout(()=>n.remove(),5000)}
+     if(m.action==='announce'){announce.textContent='SERVER ANNOUNCEMENT — '+(m.message||'');announce.style.display='block';setTimeout(()=>announce.style.display='none',8000)}
+    });
+- action: write_file
+  file: ./resources/[syrp]/syrp_ui/html/index.html
+  data: |
+    <!doctype html>
+    <html lang="en">
+    <head>
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      <link rel="stylesheet" href="style.css">
+      <title>SYRP HUD</title>
+    </head>
+    <body>
+      <section id="hud" class="hidden">
+        <div class="brand">SYRP <span>FORGED</span></div>
+        <div class="row"><b>£<span id="cash">0</span></b><small>CASH</small></div>
+        <div class="row"><b>£<span id="bank">0</span></b><small>BANK</small></div>
+        <div class="job"><span id="job">citizen</span><i id="duty">OFF DUTY</i></div>
+      </section>
+      <div id="announce"></div>
+      <div id="notices"></div>
+      <script src="app.js"></script>
+    </body>
+    </html>
+- action: write_file
+  file: ./resources/[syrp]/syrp_ui/html/style.css
+  data: |
+    :root { --steel:#111820; --panel:rgba(12,17,23,.88); --line:#77889b; --white:#f4f7fa; --green:#66d17a; --red:#ff6b6b; --amber:#ffc857; }
+    *{box-sizing:border-box} body{margin:0;overflow:hidden;font-family:Inter,Arial,sans-serif;color:var(--white);user-select:none}
+    #hud{position:fixed;right:2.2vw;top:3vh;width:240px;background:var(--panel);border:1px solid rgba(255,255,255,.12);border-left:4px solid #b8c2cc;padding:12px 14px;border-radius:8px;box-shadow:0 8px 35px rgba(0,0,0,.35)}
+    .hidden{display:none}.brand{font-weight:900;letter-spacing:2px;font-size:15px;margin-bottom:8px}.brand span{font-weight:500;color:#9fb0c2}.row{display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-top:1px solid rgba(255,255,255,.06)}.row b{font-size:18px}.row small{font-size:9px;letter-spacing:1.7px;color:#9fb0c2}.job{display:flex;justify-content:space-between;gap:8px;padding-top:7px;text-transform:uppercase;font-size:10px;letter-spacing:1px}.job i{font-style:normal;color:var(--red)}.job i.on{color:var(--green)}
+    #notices{position:fixed;right:2.2vw;top:190px;width:310px;display:flex;flex-direction:column;gap:8px}.notice{background:var(--panel);padding:11px 13px;border-radius:6px;border-left:4px solid #8fa0b3;animation:in .18s ease}.notice.success{border-color:var(--green)}.notice.error{border-color:var(--red)}.notice.warn{border-color:var(--amber)}
+    #announce{position:fixed;left:50%;top:7vh;transform:translateX(-50%);max-width:650px;padding:14px 24px;background:rgba(10,14,19,.94);border:1px solid rgba(255,255,255,.2);border-radius:8px;font-weight:800;letter-spacing:.5px;display:none;text-align:center}
+    @keyframes in{from{opacity:0;transform:translateX(20px)}to{opacity:1;transform:none}}
+- action: write_file
+  file: ./resources/[syrp]/syrp_vehicles/client.lua
+  data: |
+    local function closestVehicle(radius)
+        local ped=PlayerPedId()
+        if IsPedInAnyVehicle(ped,false) then return GetVehiclePedIsIn(ped,false) end
+        local c=GetEntityCoords(ped)
+        return GetClosestVehicle(c.x,c.y,c.z,radius or 7.0,0,71)
+    end
+    RegisterCommand('engine',function()
+        local veh=closestVehicle(2.0); if veh==0 or GetPedInVehicleSeat(veh,-1)~=PlayerPedId() then return TriggerEvent('syrp:ui:notify','You must be in the driver seat.','error') end
+        local on=GetIsVehicleEngineRunning(veh); SetVehicleEngineOn(veh,not on,false,true); TriggerEvent('syrp:ui:notify',not on and 'Engine started.' or 'Engine stopped.','info')
+    end)
+    RegisterCommand('lock',function()
+        local veh=closestVehicle(7.0); if veh==0 then return TriggerEvent('syrp:ui:notify','No vehicle nearby.','error') end
+        local state=GetVehicleDoorLockStatus(veh); local lock=(state~=2)
+        SetVehicleDoorsLocked(veh,lock and 2 or 1); SetVehicleDoorsLockedForAllPlayers(veh,lock)
+        PlayVehicleDoorCloseSound(veh,1); TriggerEvent('syrp:ui:notify',lock and 'Vehicle locked.' or 'Vehicle unlocked.','info')
+    end)
+    RegisterKeyMapping('lock','Lock / unlock nearby vehicle','keyboard','L')
+- action: write_file
+  file: ./resources/[syrp]/syrp_vehicles/fxmanifest.lua
+  data: |
+    fx_version 'cerulean'
+    game 'gta5'
+    name 'syrp_vehicles'
+    author 'SYRP Forged Framework'
+    version '1.0.0'
+    client_script 'client.lua'
